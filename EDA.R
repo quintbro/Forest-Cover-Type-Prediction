@@ -38,6 +38,13 @@ train <- un_dummy(train, names) %>%
   mutate(Cover_Type = as_factor(Cover_Type))
 
 
+train %>%
+  group_by(Soil_Type) %>%
+  summarize(count = n()) %>%
+  filter(count < 50) %>%
+  select(Soil_Type) %>%
+  c() -> levels
+
 
 
 train %>%
@@ -94,7 +101,10 @@ train %>%
 
 
 
-
+train %>%
+  group_by(Soil_Type) %>%
+  summarize(count = n()) %>%
+  filter(count < 100)
 
 
 

@@ -2,6 +2,7 @@ library(tidyverse)
 library(vroom)
 library(tidymodels)
 library(doParallel)
+library(embed)
 
 cl <- makePSOCKcluster(10)
 registerDoParallel(cl)
@@ -9,8 +10,34 @@ registerDoParallel(cl)
 train <- vroom('train.csv')
 test <- vroom('test.csv')
 
-train %>%
-  mutate(Cover_Type = as_factor(Cover_Type)) -> train
+un_dummy <- function(df, names){
+  num = 1
+  for(i in names){
+    if(num == 1){
+      df %>%
+        mutate(Soil_Type = if_else(!!sym(i) == 1, num, 0)) %>%
+        select(-c(!!sym(i)))-> df
+    }
+    else{
+      df %>%
+        mutate(Soil_Type = if_else(!!sym(i) == 1, num, Soil_Type)) %>%
+        select(-c(!!sym(i))) -> df
+    }
+    num = num + 1
+  }
+  df %>%
+    mutate(Soil_Type = as_factor(Soil_Type)) -> df
+  return(df) 
+}
+
+names = rep('0', 40)
+for(i in 1:40){
+  names[i] = paste("Soil_Type", i, sep = "")
+}
+
+train <- un_dummy(train, names) %>%
+  mutate(Cover_Type = as_factor(Cover_Type))
+test <- un_dummy(test, names)
 
 fc_recipe <- recipe(Cover_Type ~ ., data = train) %>%
   step_mutate(distance = sqrt(Vertical_Distance_To_Hydrology^2 +
@@ -20,7 +47,9 @@ fc_recipe <- recipe(Cover_Type ~ ., data = train) %>%
   step_rm(c(Vertical_Distance_To_Hydrology ,
             Horizontal_Distance_To_Hydrology,
             Hillshade_3pm)) %>%
-  step_nzv(all_predictors()) %>%
+  step_nzv(all_predictors()) %>% 
+  step_mutate()
+  step_lencode_glm(Soil_Type, outcome = vars(Cover_Type)) %>%
   step_normalize(all_numeric_predictors())
 
 
