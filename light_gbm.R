@@ -1,6 +1,7 @@
 library(tidyverse)
 library(vroom)
 library(tidymodels)
+library(xgboost)
 library(lightgbm)
 library(bonsai)
 library(doParallel)
@@ -58,8 +59,9 @@ fc_recipe <- recipe(Cover_Type ~ ., data = train) %>%
 
 fc_mod <- boost_tree(learn_rate = 0.22, # Current best: 0.22
                      tree_depth = 15,
+                     min_n = 2,
                      trees = 600) %>%
-  set_engine("lightgbm") %>%
+  set_engine("xgboost") %>%
   set_mode("classification")
 
 fc_wf <- workflow() %>%

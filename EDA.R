@@ -118,16 +118,77 @@ train %>%
 
 
 # ----- target encoding
+train <- vroom('train.csv')
+test <- vroom('test.csv')
 
-# target encode the variables
-# start by creating dummies for all levels of the target
-train %>%
-  mutate(spruce = if_else(Cover_Type == 1, 1, 0),
-         lodge_pine = if_else(Cover_Type == 2, 1, 0),
-         pond_pine = if_else(Cover_Type == 3, 1, 0),
-         cotton = if_else(Cover_Type == 4, 1, 0),
-         aspen = if_else(Cover_Type == 5, 1, 0),
-         doug = if_else(Cover_Type == 6, 1, 0),
-         krum = if_else(Cover_Type == 7, 1, 0)) %>%
-  select(c(spruce, lodge_pine, pond_pine,
-           cotton, aspen, doug, krum, Soil_Type)) -> target 
+# Remove the dummy encoding for Soil_Type
+un_dummy <- function(df, names){
+  num = 1
+  for(i in names){
+    if(num == 1){
+      df %>%
+        mutate(Soil_Type = if_else(!!sym(i) == 1, num, 0)) %>%
+        select(-c(!!sym(i)))-> df
+    }
+    else{
+      df %>%
+        mutate(Soil_Type = if_else(!!sym(i) == 1, num, Soil_Type)) %>%
+        select(-c(!!sym(i))) -> df
+    }
+    num = num + 1
+  }
+  df %>%
+    mutate(Soil_Type = as_factor(Soil_Type)) -> df
+  return(df) 
+}
+
+names = rep('0', 40)
+for(i in 1:40){
+  names[i] = paste("Soil_Type", i, sep = "")
+}
+
+train <- un_dummy(train, names) %>%
+  mutate(Cover_Type = as_factor(Cover_Type))
+test <- un_dummy(test, names)
+
+
+# Create a recipe
+fc_recipe <- recipe(Cover_Type ~ ., data = train) %>%
+  step_mutate(distance = sqrt(Vertical_Distance_To_Hydrology^2 +
+                                Horizontal_Distance_To_Hydrology^2)) %>%
+  step_mutate(above_water = if_else(Vertical_Distance_To_Hydrology > 0,
+                                    1, 0)) %>%
+  step_rm(c(Vertical_Distance_To_Hydrology ,
+            Horizontal_Distance_To_Hydrology,
+            Hillshade_3pm, Id)) %>%
+  step_zv(all_predictors()) %>%
+  step_novel(Soil_Type, new_level = "other")%>%
+  step_other(Soil_Type, threshold = 50) %>%
+  step_lencode_glm(Soil_Type, outcome = vars(Cover_Type)) %>%
+  step_normalize(all_numeric_predictors())
+
+tunedModel <- control_stack_resamples() 
+untuned_model <- control_stack_grid()
+
+folds <- vfold_cv(train, v = 5)
+
+# Penalized Regression model
+
+reg_mod <- multinom_reg(penalty = 0.0000000001,
+                        mixture = 1) %>%
+  set_engine("glmnet") %>%
+  set_mode("classification")
+
+reg_results <- workflow() %>%
+  add_recipe(fc_recipe) %>%
+  add_model(reg_mod) %>%
+  fit(train)
+
+preds <- predict(reg_results, new_data = test)
+
+test %>%
+  mutate(Cover_Type = preds$.pred_class) %>%
+  select(Id, Cover_Type) %>%
+  vroom_write("submission.csv", delim = ",")
+
+
